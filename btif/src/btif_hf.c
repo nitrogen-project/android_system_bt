@@ -72,6 +72,7 @@
                              BTA_AG_FEAT_EXTERR | \
                              BTA_AG_FEAT_BTRH   | \
                              BTA_AG_FEAT_VREC   | \
+                             BTA_AG_FEAT_INBAND | \
                              BTA_AG_FEAT_CODEC |\
                              BTA_AG_FEAT_UNAT)
 #endif
@@ -83,10 +84,13 @@
                              BTA_AG_FEAT_ECS    | \
                              BTA_AG_FEAT_EXTERR | \
                              BTA_AG_FEAT_BTRH   | \
+                             BTA_AG_FEAT_INBAND | \
                              BTA_AG_FEAT_VREC   | \
                              BTA_AG_FEAT_UNAT)
 #endif
 #endif
+
+#define BTIF_HF_IS_INBAND_ENABLED (BTIF_HF_FEATURES & BTA_AG_FEAT_INBAND)
 
 #define BTIF_HF_CALL_END_TIMEOUT       6
 
@@ -208,6 +212,20 @@ static BOOLEAN is_connected(bt_bdaddr_t *bd_addr)
         return FALSE;
 }
 
+static int get_num_connected_devices()
+{
+    int connected_devices = 0;
+    for (int i = 0; i < BTIF_HF_NUM_CB; i++)
+    {
+        if (btif_hf_cb[i].state == BTHF_CONNECTION_STATE_CONNECTED ||
+            btif_hf_cb[i].state == BTHF_CONNECTION_STATE_SLC_CONNECTED )
+        {
+            connected_devices++;
+        }
+    }
+    return connected_devices;
+}
+
 /*******************************************************************************
 **
 ** Function         btif_hf_idx_by_bdaddr
@@ -272,6 +290,23 @@ static void send_at_result(UINT8 ok_flag, UINT16 errcode, int idx)
     }
 
     BTA_AgResult (btif_hf_cb[idx].handle, BTA_AG_UNAT_RES, &ag_res);
+}
+
+/*******************************************************************************
+**
+** Function         use_inband_ring
+**
+** Description      Used to enable or disable the inband ringtone feature (used in dual HF)
+**
+** Returns          void
+**
+*******************************************************************************/
+static void use_inband_ring(BOOLEAN enabled)
+{
+    tBTA_AG_RES_DATA ag_res;
+    memset(&ag_res, 0, sizeof (ag_res));
+    ag_res.state = enabled;
+    BTA_AgResult(BTA_AG_HANDLE_ALL, BTA_AG_INBAND_RING_RES, &ag_res);
 }
 
 /*******************************************************************************
@@ -454,6 +489,13 @@ static void btif_hf_upstreams_evt(UINT16 event, char* p_param)
             btif_hf_cb[idx].peer_feat = 0;
             clear_phone_state_multihf(idx);
             hf_idx = btif_hf_latest_connected_idx();
+
+            if (BTIF_HF_IS_INBAND_ENABLED && get_num_connected_devices() == 1)
+            {
+                BTIF_TRACE_DEBUG("%s: In-band ring turned on because only one HF device",
+                                 "connected", __FUNCTION__);
+                use_inband_ring(TRUE);
+            }
             /* If AG_OPEN was received but SLC was not setup in a specified time (10 seconds),
             ** then AG_CLOSE may be received. We need to advance the queue here
             */
@@ -465,6 +507,13 @@ static void btif_hf_upstreams_evt(UINT16 event, char* p_param)
                             &btif_hf_cb[idx].connected_timestamp);
             BTIF_TRACE_DEBUG("%s: BTA_AG_CONN_EVT, idx = %d ",
                                                 __FUNCTION__, idx);
+            if (BTIF_HF_IS_INBAND_ENABLED && get_num_connected_devices() > 1)
+            {
+                BTIF_TRACE_DEBUG("%s: In-band ring turned off because more than one HF device",
+                                   "connected", __FUNCTION__);
+                use_inband_ring(FALSE);
+            }
+
             btif_hf_cb[idx].peer_feat = p_data->conn.peer_feat;
             btif_hf_cb[idx].state = BTHF_CONNECTION_STATE_SLC_CONNECTED;
             hf_idx = btif_hf_latest_connected_idx();
@@ -1342,7 +1391,10 @@ static bt_status_t phone_state_change(int num_active, int num_held, bthf_call_st
                         if (num_active > btif_hf_cb[idx].num_active)
                         {
                             res = BTA_AG_IN_CALL_CONN_RES;
-                            ag_res.audio_handle = btif_hf_cb[idx].handle;
+                            if (BTIF_HF_IS_INBAND_ENABLED)
+                                ag_res.audio_handle = BTA_AG_HANDLE_SCO_NO_CHANGE;
+                            else
+                                ag_res.audio_handle = btif_hf_cb[idx].handle;
                         }
                         else if (num_held > btif_hf_cb[idx].num_held)
                             res = BTA_AG_IN_CALL_HELD_RES;
@@ -1368,9 +1420,16 @@ static bt_status_t phone_state_change(int num_active, int num_held, bthf_call_st
 
             case BTHF_CALL_STATE_INCOMING:
                 if (num_active || num_held)
+                {
                     res = BTA_AG_CALL_WAIT_RES;
+                }
                 else
+                {
+                    if (BTIF_HF_IS_INBAND_ENABLED)
+                        ag_res.audio_handle = btif_hf_cb[idx].handle;
                     res = BTA_AG_IN_CALL_RES;
+                }
+
                 if (number)
                 {
                     int xx = 0;
