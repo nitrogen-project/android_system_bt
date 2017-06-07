@@ -657,6 +657,9 @@
  * BLE
  *
  *****************************************************************************/
+#ifndef HCI_RAW_CMD_INCLUDED
+#define HCI_RAW_CMD_INCLUDED    TRUE
+#endif
 
 #ifndef LOCAL_BLE_CONTROLLER_ID
 #define LOCAL_BLE_CONTROLLER_ID (1)
