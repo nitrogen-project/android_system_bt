@@ -87,9 +87,12 @@ static uint8_t btm_ble_cs_update_pf_counter(tBTM_BLE_SCAN_COND_OP action,
  ******************************************************************************/
 tBTM_STATUS btm_ble_obtain_vsc_details() {
   tBTM_STATUS st = BTM_SUCCESS;
-
-#if (BLE_VND_INCLUDED == TRUE)
   BTM_BleGetVendorCapabilities(&cmn_ble_vsc_cb);
+  if (0 == cmn_ble_vsc_cb.filter_support) {
+      st = BTM_MODE_UNSUPPORTED;
+      return st;
+  }
+#if (BLE_VND_INCLUDED == TRUE)
   if (cmn_ble_vsc_cb.filter_support && 0 == cmn_ble_vsc_cb.max_filter) {
     st = BTM_MODE_UNSUPPORTED;
     return st;
